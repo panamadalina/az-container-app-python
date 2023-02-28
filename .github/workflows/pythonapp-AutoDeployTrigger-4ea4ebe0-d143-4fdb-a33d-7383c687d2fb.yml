@@ -1,0 +1,60 @@
+name: Trigger auto deployment for pythonapp
+
+# When this action will be executed
+on:
+  # Automatically trigger it when detected changes in repo
+  push:
+    branches: 
+      [ main ]
+    paths:
+    - '**'
+    - '.github/workflows/pythonapp-AutoDeployTrigger-4ea4ebe0-d143-4fdb-a33d-7383c687d2fb.yml'
+
+  # Allow mannually trigger 
+  workflow_dispatch:      
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout to the branch
+        uses: actions/checkout@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Log in to container registry
+        uses: docker/login-action@v1
+        with:
+          registry: cac6695506feacr.azurecr.io
+          username: ${{ secrets.PYTHONAPP_REGISTRY_USERNAME }}
+          password: ${{ secrets.PYTHONAPP_REGISTRY_PASSWORD }}
+
+      - name: Build and push container image to registry
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          tags: cac6695506feacr.azurecr.io/pythonapp:${{ github.sha }}
+          file: ./Dockerfile
+          context: ./
+
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.PYTHONAPP_AZURE_CREDENTIALS }}
+
+
+      - name: Deploy to containerapp
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            az config set extension.use_dynamic_install=yes_without_prompt
+            az containerapp registry set -n pythonapp -g endava-presentation-rg --server cac6695506feacr.azurecr.io --username  ${{ secrets.PYTHONAPP_REGISTRY_USERNAME }} --password ${{ secrets.PYTHONAPP_REGISTRY_PASSWORD }}
+            az containerapp update -n pythonapp -g endava-presentation-rg --image cac6695506feacr.azurecr.io/pythonapp:${{ github.sha }}
